@@ -1,0 +1,33 @@
+[project]
+name = "ingest_pipeline"
+version = "0.1.0"
+description = "This creates a lambda that is used to process files from an Uppy interface into a Label Studio Task."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Ajay Bhargava", email = "bhargava.ajay@gmail.com" }
+]
+dependencies = [
+    "boto3>=1.38.40",
+    "pdf2image>=1.17.0",
+    "pillow>=11.2.1",
+    "pytest",
+]
+
+[build-system]
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ingest_pipeline"]
+package-dir = {"ingest_pipeline" = "src/ingest_pipeline"}
+
+[tool.ruff]
+src = ["src"]
+line-length = 100
+select = ["E", "F", "B", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["__test__"]
+addopts = "-ra -q"

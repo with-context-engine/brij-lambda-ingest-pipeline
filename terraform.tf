@@ -1,0 +1,130 @@
+terraform {
+  required_version = "~> 1.6"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "5.43.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "us-east-1"
+}
+
+# ----------------------------------------
+# 1. Reference existing S3 bucket
+# ----------------------------------------
+data "aws_s3_bucket" "brij_v1_bucket" {
+  bucket = "brij-v1-bucket"
+}
+
+# ----------------------------------------
+# 2. Create SQS queue for decoupling
+# ----------------------------------------
+resource "aws_sqs_queue" "brij_v1_upload_queue" {
+  name                       = "brij-v1-upload-queue"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 86400
+}
+
+# ----------------------------------------
+# 3. IAM Role & Policies for Lambda
+# ----------------------------------------
+resource "aws_iam_role" "brij_v1_lambda_role" {
+  name = "brij-v1-lambda-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+}
+
+# Attach basic execution policy for CloudWatch logs
+resource "aws_iam_role_policy_attachment" "brij_v1_lambda_logging" {
+  role       = aws_iam_role.brij_v1_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Inline S3 read/write policy
+resource "aws_iam_role_policy" "brij_v1_lambda_s3_policy" {
+  name = "brij-v1-lambda-s3-policy"
+  role = aws_iam_role.brij_v1_lambda_role.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ],
+        Resource = [
+          data.aws_s3_bucket.brij_v1_bucket.arn,
+          "${data.aws_s3_bucket.brij_v1_bucket.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+# ----------------------------------------
+# 4. S3 Bucket Notification → SQS
+# ----------------------------------------
+resource "aws_s3_bucket_notification" "upload_notify" {
+  bucket = data.aws_s3_bucket.brij_v1_bucket.id
+
+  queue {
+    queue_arn     = aws_sqs_queue.brij_v1_upload_queue.arn
+    events        = ["s3:ObjectCreated:Put"]
+    filter_prefix = "upload/"
+  }
+
+  depends_on = [aws_sqs_queue.brij_v1_upload_queue]
+}
+
+# ----------------------------------------
+# 5. Lambda Function using ECR Image
+# ----------------------------------------
+variable "lambda_image_uri" {
+  description = "URI of the ECR image for the Lambda function"
+  type        = string
+}
+
+resource "aws_lambda_function" "converter" {
+  function_name = "labelstudio-preprocessor"
+  role          = aws_iam_role.brij_v1_lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = var.lambda_image_uri
+
+  timeout = 900
+  # Ephemeral storage for large files
+  ephemeral_storage { size = 4096 }
+}
+
+# ----------------------------------------
+# 6. Allow SQS to invoke Lambda
+# ----------------------------------------
+resource "aws_lambda_permission" "allow_sqs" {
+  statement_id  = "AllowSQSInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.converter.function_name
+  principal     = "sqs.amazonaws.com"
+  source_arn    = aws_sqs_queue.brij_v1_upload_queue.arn
+}
+
+# ----------------------------------------
+# 7. Event Source Mapping: SQS → Lambda
+# ----------------------------------------
+resource "aws_lambda_event_source_mapping" "sqs_to_lambda" {
+  event_source_arn = aws_sqs_queue.brij_v1_upload_queue.arn
+  function_name    = aws_lambda_function.converter.arn
+  batch_size       = 5
+  enabled          = true
+}
