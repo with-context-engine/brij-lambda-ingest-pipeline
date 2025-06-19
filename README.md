@@ -19,10 +19,10 @@ sequenceDiagram
       S3Upload->>SQSQueue: Enqueue S3 event message
     end
 
-    Note over SQSQueue,Lambda: Lambda polls SQS in batches of 5
+    Note over SQSQueue,Lambda: AWS Lambda service polls SQS in batches of 5
     loop for each batch
-      SQSQueue->>Lambda: Deliver up to 5 messages
-      par for each message
+      SQSQueue->>Lambda: Invoke function with batch of messages
+      loop for each message in batch
         Lambda->>S3Upload: Download upload/<file>
         Lambda->>S3Raw: Copy to raw/<file> & delete upload/<file>
         Lambda->>Lambda: Convert PDF→TIFF or normalize TIFF
@@ -35,4 +35,3 @@ sequenceDiagram
     Note over S3Ingest,LabelStudio: Label Studio polls ingest/ prefix
     S3Ingest->>LabelStudio: New tasks appear for annotation
 ```
-

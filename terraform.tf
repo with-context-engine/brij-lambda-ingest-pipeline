@@ -24,12 +24,35 @@ data "aws_s3_bucket" "brij_v1_bucket" {
 # ----------------------------------------
 resource "aws_sqs_queue" "brij_v1_upload_queue" {
   name                       = "brij-v1-upload-queue"
-  visibility_timeout_seconds = 300
+  visibility_timeout_seconds = 1500
   message_retention_seconds  = 86400
 }
 
 # ----------------------------------------
-# 3. IAM Role & Policies for Lambda
+# 3. Allow S3 to SendMessage to SQS Queue
+# ----------------------------------------
+resource "aws_sqs_queue_policy" "allow_s3_send_message" {
+  queue_url = aws_sqs_queue.brij_v1_upload_queue.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid       = "Allow-S3-SendMessage",
+        Effect    = "Allow",
+        Principal = { Service = "s3.amazonaws.com" },
+        Action    = "sqs:SendMessage",
+        Resource  = aws_sqs_queue.brij_v1_upload_queue.arn,
+        Condition = {
+          ArnEquals = { "aws:SourceArn" = data.aws_s3_bucket.brij_v1_bucket.arn }
+        }
+      }
+    ]
+  })
+}
+
+# ----------------------------------------
+# 4. IAM Role & Policies for Lambda
 # ----------------------------------------
 resource "aws_iam_role" "brij_v1_lambda_role" {
   name = "brij-v1-lambda-role"
@@ -73,8 +96,28 @@ resource "aws_iam_role_policy" "brij_v1_lambda_s3_policy" {
   })
 }
 
+# Inline SQS receive policy for Lambda to poll the queue
+resource "aws_iam_role_policy" "brij_v1_lambda_sqs_policy" {
+  name = "brij-v1-lambda-sqs-policy"
+  role = aws_iam_role.brij_v1_lambda_role.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes"
+        ],
+        Resource = aws_sqs_queue.brij_v1_upload_queue.arn
+      }
+    ]
+  })
+}
+
 # ----------------------------------------
-# 4. S3 Bucket Notification → SQS
+# 5. S3 Bucket Notification → SQS
 # ----------------------------------------
 resource "aws_s3_bucket_notification" "upload_notify" {
   bucket = data.aws_s3_bucket.brij_v1_bucket.id
@@ -85,11 +128,14 @@ resource "aws_s3_bucket_notification" "upload_notify" {
     filter_prefix = "upload/"
   }
 
-  depends_on = [aws_sqs_queue.brij_v1_upload_queue]
+  depends_on = [
+    aws_sqs_queue.brij_v1_upload_queue,
+    aws_sqs_queue_policy.allow_s3_send_message
+  ]
 }
 
 # ----------------------------------------
-# 5. Lambda Function using ECR Image
+# 6. Lambda Function using ECR Image
 # ----------------------------------------
 variable "lambda_image_uri" {
   description = "URI of the ECR image for the Lambda function"
@@ -104,12 +150,11 @@ resource "aws_lambda_function" "converter" {
   image_uri    = var.lambda_image_uri
 
   timeout = 900
-  # Ephemeral storage for large files
   ephemeral_storage { size = 4096 }
 }
 
 # ----------------------------------------
-# 6. Allow SQS to invoke Lambda
+# 7. Allow SQS to invoke Lambda
 # ----------------------------------------
 resource "aws_lambda_permission" "allow_sqs" {
   statement_id  = "AllowSQSInvoke"
@@ -120,7 +165,7 @@ resource "aws_lambda_permission" "allow_sqs" {
 }
 
 # ----------------------------------------
-# 7. Event Source Mapping: SQS → Lambda
+# 8. Event Source Mapping: SQS → Lambda
 # ----------------------------------------
 resource "aws_lambda_event_source_mapping" "sqs_to_lambda" {
   event_source_arn = aws_sqs_queue.brij_v1_upload_queue.arn
