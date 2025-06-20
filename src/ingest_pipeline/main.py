@@ -4,7 +4,7 @@ import json
 import tempfile
 import boto3
 import urllib.parse
-import fitz  # PyMuPDF
+import fitz
 
 s3 = boto3.client("s3")
 
@@ -47,9 +47,9 @@ def process_pdf_page(page, page_num, base_name, bucket, tmp_dir):
     page_png = os.path.join(tmp_dir, f"{page_base}.png")
     
     # Render page as PNG using PyMuPDF
-    pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))  # 2x scaling for better quality
+    pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
     pix.save(page_png)
-    pix = None  # Free memory
+    pix = None
     print(f"[LOG] Saved page {page_num} as PNG: {page_png}")
     
     # Upload page PNG to "raw/"

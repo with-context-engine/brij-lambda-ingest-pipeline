@@ -381,43 +381,17 @@ class TestRealPDFProcessing:
         return os.path.join(os.path.dirname(__file__), "artifacts", "test_pdf.pdf")
     
     @patch('ingest_pipeline.main.s3')
-    @patch('ingest_pipeline.main.fitz')
-    def test_process_pdf_real_file_png_quality(self, mock_fitz, mock_s3, test_pdf_path):
+    def test_process_pdf_real_file_png_quality(self, mock_s3, test_pdf_path):
         """Test processing a real PDF and verify PNG output quality."""
         # Setup mock
         mock_s3.list_objects_v2.return_value = {}
-        
-        # Create a simple mock for PyMuPDF that simulates real behavior
-        mock_doc = Mock()
-        mock_doc.page_count = 2
-        mock_page1 = Mock()
-        mock_page2 = Mock()
-        mock_pixmap1 = Mock()
-        mock_pixmap2 = Mock()
-        
-        def mock_save_png1(path):
-            # Create a fake PNG file with some content
-            with open(path, 'wb') as f:
-                f.write(b'\x89PNG\r\n\x1a\n' + b'fake png content 1' * 100)
-        
-        def mock_save_png2(path):
-            # Create a fake PNG file with some content
-            with open(path, 'wb') as f:
-                f.write(b'\x89PNG\r\n\x1a\n' + b'fake png content 2' * 100)
-        
-        mock_pixmap1.save = mock_save_png1
-        mock_pixmap2.save = mock_save_png2
-        mock_page1.get_pixmap.return_value = mock_pixmap1
-        mock_page2.get_pixmap.return_value = mock_pixmap2
-        mock_doc.__getitem__.side_effect = [mock_page1, mock_page2]
-        mock_fitz.open.return_value = mock_doc
         
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Process the PDF (using mocked PyMuPDF)
             processed_keys = process_pdf(test_pdf_path, "test_pdf", "test-bucket", tmp_dir)
             
             # Verify that PNGs were created
-            assert len(processed_keys) == 2
+            assert len(processed_keys) == 1
             
             # Check each PNG file
             png_sizes = []
@@ -435,7 +409,7 @@ class TestRealPDFProcessing:
                 png_sizes.append(file_size)
                 
                 # Ensure PNG is not suspiciously small
-                assert file_size > 1000, f"PNG file {local_png} is too small: {file_size} bytes"
+                assert file_size > 1_000_000, f"PNG file {local_png} is too small: {file_size} bytes"
                 
                 # Verify it starts with PNG header
                 with open(local_png, 'rb') as f:
@@ -444,10 +418,7 @@ class TestRealPDFProcessing:
             
             # Verify file sizes are reasonable
             print(f"PNG file sizes: {png_sizes}")
-            assert len(png_sizes) == 2, "Should generate 2 PNG files"
-            for size in png_sizes:
-                # PNG files should be reasonably sized
-                assert size > 1000, f"PNG file size too small: {size} bytes"
+            assert len(png_sizes) == 1, "Should generate 1 PNG file"
     
     @patch('ingest_pipeline.main.s3')
     def test_process_pdf_page_format(self, mock_s3):
