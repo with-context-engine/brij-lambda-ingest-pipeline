@@ -8,8 +8,20 @@ terraform {
   }
 }
 
+variable "lambda_image_uri" {
+  description = "The URI of the Lambda function image."
+  type        = string
+  default     = "220582896887.dkr.ecr.us-east-1.amazonaws.com/with-context/brij-labelstudio-lambda-pipeline:latest"
+}
+
+variable "aws_region" {
+  description = "The AWS region to deploy resources in."
+  type        = string
+  default     = "us-east-1"
+}
+
 provider "aws" {
-  region = "us-east-1"
+  region = var.aws_region
 }
 
 # ----------------------------------------
@@ -140,12 +152,12 @@ resource "aws_s3_bucket_notification" "upload_notify" {
 data "archive_file" "lambda_zip" {
   type        = "zip"
   output_path = "${path.module}/lambda_function.zip"
-  
+
   source {
     content  = file("${path.module}/src/ingest_pipeline/main.py")
     filename = "main.py"
   }
-  
+
   source {
     content  = file("${path.module}/src/ingest_pipeline/__init__.py")
     filename = "__init__.py"
@@ -175,7 +187,7 @@ resource "aws_lambda_function" "converter" {
 
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  
+
   runtime = "python3.11"
   handler = "main.lambda_handler"
   layers  = [aws_lambda_layer_version.pymupdf_layer.arn]

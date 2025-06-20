@@ -16,17 +16,18 @@ mkdir -p "$LAYER_DIR"
 
 # Install PyMuPDF into the layer directory
 echo "Installing PyMuPDF..."
-pip install PyMuPDF -t "$LAYER_DIR"
+pip3 install PyMuPDF -t "$LAYER_DIR"
 
 # Create the layer zip file
 echo "Creating layer zip file..."
 cd "$TEMP_DIR"
-zip -r ../pymupdf_layer.zip python/
+zip -r pymupdf_layer.zip python/
 
 # Move the zip file to project root
-mv ../pymupdf_layer.zip ./pymupdf_layer.zip
+mv pymupdf_layer.zip "$OLDPWD/"
 
 # Cleanup
+cd "$OLDPWD"
 rm -rf "$TEMP_DIR"
 
 echo "PyMuPDF layer built successfully: pymupdf_layer.zip"

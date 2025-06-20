@@ -136,3 +136,34 @@ Failed processing attempts are logged to CloudWatch for debugging.
 - **SQS**: Buffers requests to handle traffic spikes
 - **S3**: Lifecycle policies can archive old files
 - **Layers**: PyMuPDF shared across deployments
+
+### System Diagram
+
+```mermaid
+graph TD;
+    subgraph "Your Local Machine"
+        A["uv (for local dev)"]
+        B["scripts/deploy.sh"] -- runs --> C["scripts/build_layer.sh"];
+        C -- uses --> D["pip install -t"];
+        D -- creates --> E["pymupdf_layer.zip"];
+        B -- runs --> F["terraform apply"];
+    end
+
+    subgraph "AWS Cloud"
+        G["S3 Bucket"] -- triggers --> H["SQS Queue"] -- triggers --> I["Lambda Function"];
+        J["aws_lambda_layer_version (PyMuPDF)"];
+        I -- uses --> J;
+    end
+    
+    F -- uploads --> E;
+    F -- provisions --> G;
+    F -- provisions --> H;
+    F -- provisions & attaches layer --> I;
+    F -- creates resource for --> J;
+
+    subgraph "Inside Lambda Function"
+       K["main.py"] -- can now --> L["import fitz"];
+    end
+
+    I -- contains --> K;
+```

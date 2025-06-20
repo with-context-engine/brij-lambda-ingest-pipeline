@@ -28,7 +28,7 @@ fi
 
 # Step 3: Plan the deployment
 echo "📋 Step 3: Planning Terraform deployment..."
-terraform plan
+terraform plan -out=plan.out
 echo ""
 
 # Step 4: Ask for confirmation
@@ -36,7 +36,7 @@ read -p "Do you want to proceed with the deployment? (y/N): " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "🏗️  Step 4: Applying Terraform configuration..."
-    terraform apply
+    terraform apply -auto-approve "plan.out"
     echo ""
     echo "✅ Deployment completed successfully!"
     echo ""
