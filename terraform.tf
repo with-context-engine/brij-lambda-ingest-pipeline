@@ -5,13 +5,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "5.43.0"
     }
+    klayers = {
+      version = "~> 1.0.0"
+      source  = "ldcorentin/klayer"
+    }
   }
-}
-
-variable "lambda_image_uri" {
-  description = "The URI of the Lambda function image."
-  type        = string
-  default     = "220582896887.dkr.ecr.us-east-1.amazonaws.com/with-context/brij-labelstudio-lambda-pipeline:latest"
 }
 
 variable "aws_region" {
@@ -165,17 +163,12 @@ data "archive_file" "lambda_zip" {
 }
 
 # ----------------------------------------
-# 7. Lambda Layer for PyMuPDF
+# 7. Lambda Layer for PyMuPDF using Klayers
 # ----------------------------------------
-resource "aws_lambda_layer_version" "pymupdf_layer" {
-  filename   = "${path.module}/pymupdf_layer.zip"
-  layer_name = "pymupdf-layer"
-
-  compatible_runtimes = ["python3.11"]
-
-  lifecycle {
-    ignore_changes = [filename]
-  }
+data "klayers_package_latest_version" "pymupdf" {
+  name           = "PyMuPDF"
+  python_version = "3.12"
+  region         = var.aws_region
 }
 
 # ----------------------------------------
@@ -188,16 +181,15 @@ resource "aws_lambda_function" "converter" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
-  runtime = "python3.11"
+  runtime = "python3.12"
   handler = "main.lambda_handler"
-  layers  = [aws_lambda_layer_version.pymupdf_layer.arn]
+  layers  = [data.klayers_package_latest_version.pymupdf.arn]
 
   timeout = 900
   ephemeral_storage { size = 4096 }
 
   depends_on = [
-    data.archive_file.lambda_zip,
-    aws_lambda_layer_version.pymupdf_layer
+    data.archive_file.lambda_zip
   ]
 }
 
