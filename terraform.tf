@@ -135,26 +135,62 @@ resource "aws_s3_bucket_notification" "upload_notify" {
 }
 
 # ----------------------------------------
-# 6. Lambda Function using ECR Image
+# 6. Create Lambda deployment package
 # ----------------------------------------
-variable "lambda_image_uri" {
-  description = "URI of the ECR image for the Lambda function"
-  type        = string
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  output_path = "${path.module}/lambda_function.zip"
+  
+  source {
+    content  = file("${path.module}/src/ingest_pipeline/main.py")
+    filename = "main.py"
+  }
+  
+  source {
+    content  = file("${path.module}/src/ingest_pipeline/__init__.py")
+    filename = "__init__.py"
+  }
 }
 
+# ----------------------------------------
+# 7. Lambda Layer for PyMuPDF
+# ----------------------------------------
+resource "aws_lambda_layer_version" "pymupdf_layer" {
+  filename   = "${path.module}/pymupdf_layer.zip"
+  layer_name = "pymupdf-layer"
+
+  compatible_runtimes = ["python3.11"]
+
+  lifecycle {
+    ignore_changes = [filename]
+  }
+}
+
+# ----------------------------------------
+# 8. Lambda Function using zip file with PyMuPDF layer
+# ----------------------------------------
 resource "aws_lambda_function" "converter" {
   function_name = "labelstudio-preprocessor"
   role          = aws_iam_role.brij_v1_lambda_role.arn
 
-  package_type = "Image"
-  image_uri    = var.lambda_image_uri
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  
+  runtime = "python3.11"
+  handler = "main.lambda_handler"
+  layers  = [aws_lambda_layer_version.pymupdf_layer.arn]
 
   timeout = 900
   ephemeral_storage { size = 4096 }
+
+  depends_on = [
+    data.archive_file.lambda_zip,
+    aws_lambda_layer_version.pymupdf_layer
+  ]
 }
 
 # ----------------------------------------
-# 7. Allow SQS to invoke Lambda
+# 9. Allow SQS to invoke Lambda
 # ----------------------------------------
 resource "aws_lambda_permission" "allow_sqs" {
   statement_id  = "AllowSQSInvoke"
@@ -165,7 +201,7 @@ resource "aws_lambda_permission" "allow_sqs" {
 }
 
 # ----------------------------------------
-# 8. Event Source Mapping: SQS → Lambda
+# 10. Event Source Mapping: SQS → Lambda
 # ----------------------------------------
 resource "aws_lambda_event_source_mapping" "sqs_to_lambda" {
   event_source_arn = aws_sqs_queue.brij_v1_upload_queue.arn
