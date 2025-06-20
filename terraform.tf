@@ -187,6 +187,7 @@ resource "aws_lambda_function" "converter" {
 
   timeout = 900
   ephemeral_storage { size = 4096 }
+  memory_size = 4096
 
   depends_on = [
     data.archive_file.lambda_zip

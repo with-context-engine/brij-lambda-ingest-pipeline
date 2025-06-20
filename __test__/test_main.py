@@ -160,21 +160,20 @@ class TestLambdaHandler:
         """Test processing a PDF with multiple pages."""
         # Mock PyMuPDF document
         mock_doc = Mock()
-        mock_doc.page_count = 3
-        mock_doc.__getitem__.side_effect = [Mock(), Mock(), Mock()]  # 3 pages
+        mock_doc.page_count = 2
+        mock_doc.__getitem__.side_effect = [Mock(), Mock()]  # 2 pages
         mock_fitz.open.return_value = mock_doc
         
         mock_process_page.side_effect = [
             "raw/doc_0001.png",
             "raw/doc_0002.png",
-            "raw/doc_0003.png"
         ]
         
         with tempfile.TemporaryDirectory() as tmp_dir:
             keys = process_pdf("test.pdf", "doc", "test-bucket", tmp_dir)
             
-            assert len(keys) == 3
-            assert mock_process_page.call_count == 3
+            assert len(keys) == 2
+            assert mock_process_page.call_count == 2
             mock_doc.close.assert_called_once()
     
     @patch('ingest_pipeline.main.get_next_task_sequence')
@@ -391,7 +390,7 @@ class TestRealPDFProcessing:
             processed_keys = process_pdf(test_pdf_path, "test_pdf", "test-bucket", tmp_dir)
             
             # Verify that PNGs were created
-            assert len(processed_keys) == 1
+            assert len(processed_keys) == 2
             
             # Check each PNG file
             png_sizes = []
@@ -418,7 +417,7 @@ class TestRealPDFProcessing:
             
             # Verify file sizes are reasonable
             print(f"PNG file sizes: {png_sizes}")
-            assert len(png_sizes) == 1, "Should generate 1 PNG file"
+            assert len(png_sizes) == 2, "Should generate 2 PNG files"
     
     @patch('ingest_pipeline.main.s3')
     def test_process_pdf_page_format(self, mock_s3):
