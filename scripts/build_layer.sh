@@ -16,7 +16,13 @@ mkdir -p "$LAYER_DIR"
 
 # Install PyMuPDF into the layer directory
 echo "Installing PyMuPDF..."
-pip3 install PyMuPDF -t "$LAYER_DIR"
+pip3 install \
+--platform manylinux2014_x86_64 \
+--target="$LAYER_DIR/lib/python3.12/site-packages" \
+--implementation cp \
+--python-version 3.12 \
+--only-binary=:all: --upgrade \
+pymupdf
 
 # Create the layer zip file
 echo "Creating layer zip file..."
