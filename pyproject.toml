@@ -13,6 +13,7 @@ dependencies = [
     "pillow>=11.2.1",
     "pymupdf>=1.26.1",
     "pytest",
+    "requests>=2.32.4",
 ]
 
 [build-system]

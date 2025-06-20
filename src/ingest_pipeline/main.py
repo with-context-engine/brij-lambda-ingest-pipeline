@@ -5,6 +5,7 @@ import tempfile
 import boto3
 import urllib.parse
 import fitz
+import requests
 
 s3 = boto3.client("s3")
 
@@ -173,5 +174,35 @@ def lambda_handler(event, context):
             process_s3_record(record)
         except Exception as e:
             print(f"[ERROR] Error processing record: {record}, Error: {e}")
-    
-    return {"status": "success"}
+
+    # After processing all records, trigger storage sync
+    sync_status = "failed"
+    sync_response_json = {}
+    try:
+        url = "https://brij-annotate.with-context.co/api/storages/s3/1/sync"
+        token = os.getenv("CONTEXT_TOKEN")
+        headers = {"Authorization": f"Token {token}"}
+
+        print("[LOG] Triggering storage sync.")
+        response = requests.post(url, headers=headers)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+
+        sync_response_json = response.json()
+
+        if sync_response_json.get("status") == "completed":
+            sync_status = "success"
+            print("[LOG] Storage sync completed successfully.")
+        else:
+            print(f"[LOG] Storage sync status: {sync_response_json.get('status')}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Failed to trigger storage sync: {e}")
+        sync_response_json = {"error": str(e)}
+
+    return {
+        "status": "success",
+        "sync": {
+            "status": sync_status,
+            "response": sync_response_json,
+        },
+    }

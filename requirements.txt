@@ -1,3 +1,4 @@
 PyMuPDF
 boto3
 pytest
+requests

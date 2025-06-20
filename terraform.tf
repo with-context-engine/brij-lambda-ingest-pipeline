@@ -171,6 +171,12 @@ data "klayers_package_latest_version" "pymupdf" {
   region         = var.aws_region
 }
 
+data "klayers_package_latest_version" "requests" {
+  name           = "requests"
+  python_version = "3.12"
+  region         = var.aws_region
+}
+
 # ----------------------------------------
 # 8. Lambda Function using zip file with PyMuPDF layer
 # ----------------------------------------
@@ -183,7 +189,10 @@ resource "aws_lambda_function" "converter" {
 
   runtime = "python3.12"
   handler = "main.lambda_handler"
-  layers  = [data.klayers_package_latest_version.pymupdf.arn]
+  layers = [
+    data.klayers_package_latest_version.pymupdf.arn,
+    data.klayers_package_latest_version.requests.arn
+  ]
 
   timeout = 900
   ephemeral_storage { size = 4096 }
