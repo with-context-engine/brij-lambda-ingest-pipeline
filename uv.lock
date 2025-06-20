@@ -40,6 +40,19 @@ wheels = [
 ]
 
 [[package]]
+name = "fastdiff"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wasmer" },
+    { name = "wasmer-compiler-cranelift" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/0e/5cec0653411663dab4850d2cf04be21e36fd604b7669af546062076e5a07/fastdiff-0.3.0.tar.gz", hash = "sha256:4dfa09c47832a8c040acda3f1f55fc0ab4d666f0e14e6951e6da78d59acd945a", size = 44514 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c2/98/72928a3911acf145d57dc02c494c025a3820665ca1df3fc083d1a82bac9e/fastdiff-0.3.0-py2.py3-none-any.whl", hash = "sha256:ca5f61f6ddf5a1564ddfd98132ad28e7abe4a88a638a8b014a2214f71e5918ec", size = 37563 },
+]
+
+[[package]]
 name = "ingest-pipeline"
 version = "0.1.0"
 source = { editable = "." }
@@ -48,6 +61,7 @@ dependencies = [
     { name = "pdf2image" },
     { name = "pillow" },
     { name = "pytest" },
+    { name = "snapshottest" },
 ]
 
 [package.metadata]
@@ -56,6 +70,7 @@ requires-dist = [
     { name = "pdf2image", specifier = ">=1.17.0" },
     { name = "pillow", specifier = ">=11.2.1" },
     { name = "pytest" },
+    { name = "snapshottest", specifier = ">=0.6.0" },
 ]
 
 [[package]]
@@ -206,10 +221,49 @@ wheels = [
 ]
 
 [[package]]
+name = "snapshottest"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastdiff" },
+    { name = "six" },
+    { name = "termcolor" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/14/6a/6a6ff192326d79048f44c9348acad760070cce68f9fc9c9832c3efa7aca8/snapshottest-0.6.0.tar.gz", hash = "sha256:bbcaf81d92d8e330042e5c928e13d9f035e99e91b314fe55fda949c2f17b653c", size = 22573 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/d9/9527f609c28b508043edf587d03f96b8621ae4adaa4480197347cb640d0e/snapshottest-0.6.0-py2.py3-none-any.whl", hash = "sha256:9b177cffe0870c589df8ddbee0a770149c5474b251955bdbde58b7f32a4ec429", size = 16510 },
+]
+
+[[package]]
+name = "termcolor"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/6c/3d75c196ac07ac8749600b60b03f4f6094d54e132c4d94ebac6ee0e0add0/termcolor-3.1.0.tar.gz", hash = "sha256:6a6dd7fbee581909eeec6a756cff1d7f7c376063b14e4a298dc4980309e55970", size = 14324 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/bd/de8d508070629b6d84a30d01d57e4a65c69aa7f5abe7560b8fad3b50ea59/termcolor-3.1.0-py3-none-any.whl", hash = "sha256:591dd26b5c2ce03b9e43f391264626557873ce1d379019786f99b0c2bee140aa", size = 7684 },
+]
+
+[[package]]
 name = "urllib3"
 version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/15/22/9ee70a2574a4f4599c47dd506532914ce044817c7752a79b6a51286319bc/urllib3-2.5.0.tar.gz", hash = "sha256:3fc47733c7e419d4bc3f6b3dc2b4f890bb743906a30d56ba4a5bfa4bbff92760", size = 393185 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.5.0-py3-none-any.whl", hash = "sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc", size = 129795 },
+]
+
+[[package]]
+name = "wasmer"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/6b/30e25924cae7add377f5601e71c778e9a1e515c7a58291f52756c1bb7e87/wasmer-1.1.0-py3-none-any.whl", hash = "sha256:2caf8c67feae9cd4246421551036917811c446da4f27ad4c989521ef42751931", size = 1617 },
+]
+
+[[package]]
+name = "wasmer-compiler-cranelift"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/fa/26489c8f25470a3d50994aac8ebeabb2ca7f88874a15e0e77272b3a912c4/wasmer_compiler_cranelift-1.1.0-py3-none-any.whl", hash = "sha256:200fea80609cfb088457327acf66d5aa61f4c4f66b5a71133ada960b534c7355", size = 1866 },
 ]

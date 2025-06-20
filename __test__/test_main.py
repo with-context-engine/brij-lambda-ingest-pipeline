@@ -147,7 +147,7 @@ class TestLambdaHandler:
                 tmp_dir
             )
             
-            assert raw_key == "raw/test_document_page001.tiff"
+            assert raw_key == "raw/test_document_0001.tiff"
             mock_page.save.assert_called_once()
             mock_s3_client.upload_file.assert_called_once()
     
@@ -159,9 +159,9 @@ class TestLambdaHandler:
         mock_pages = [Mock() for _ in range(3)]
         mock_convert.return_value = mock_pages
         mock_process_page.side_effect = [
-            "raw/doc_page001.tiff",
-            "raw/doc_page002.tiff",
-            "raw/doc_page003.tiff"
+            "raw/doc_0001.tiff",
+            "raw/doc_0002.tiff",
+            "raw/doc_0003.tiff"
         ]
         
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -209,9 +209,8 @@ class TestLambdaHandler:
         )
     
     @patch('ingest_pipeline.main.process_pdf')
-    @patch('ingest_pipeline.main.move_original_to_raw')
     @patch('tempfile.TemporaryDirectory')
-    def test_process_s3_record_pdf(self, mock_tempdir, mock_move, mock_process_pdf, mock_s3_client):
+    def test_process_s3_record_pdf(self, mock_tempdir, mock_process_pdf, mock_s3_client):
         """Test processing an S3 record for a PDF file."""
         # Setup mocks
         mock_temp = MagicMock()
@@ -232,7 +231,8 @@ class TestLambdaHandler:
         process_s3_record(record)
         
         mock_s3_client.download_file.assert_called_once()
-        mock_move.assert_called_once()
+        # PDFs should not be moved anymore
+        mock_s3_client.delete_object.assert_not_called()
         mock_process_pdf.assert_called_once()
     
     def test_process_s3_record_skip_non_upload(self, mock_s3_client):
@@ -303,9 +303,8 @@ class TestLambdaHandler:
         }
         
         with patch('ingest_pipeline.main.process_pdf'):
-            with patch('ingest_pipeline.main.move_original_to_raw'):
-                with patch('tempfile.TemporaryDirectory'):
-                    process_s3_record(record)
+            with patch('tempfile.TemporaryDirectory'):
+                process_s3_record(record)
         
         # Check that download was called with decoded key
         mock_s3_client.download_file.assert_called_once()
@@ -351,8 +350,132 @@ class TestIntegration:
         # Should have downloaded the original
         assert mock_s3.download_file.call_count == 1
         
-        # Should have uploaded: original + 2 TIFFs + 2 JSONs = 5 files
-        assert mock_s3.upload_file.call_count == 5
+        # Should have uploaded: 2 TIFFs + 2 JSONs = 4 files (PDF not moved anymore)
+        assert mock_s3.upload_file.call_count == 4
         
-        # Should have deleted the original
-        assert mock_s3.delete_object.call_count == 1 
+        # Should NOT have deleted the original PDF
+        assert mock_s3.delete_object.call_count == 0
+
+
+class TestRealPDFProcessing:
+    """Test with real PDF file and verify TIFF output."""
+    
+    @pytest.fixture
+    def test_pdf_path(self):
+        """Path to the test PDF file."""
+        return os.path.join(os.path.dirname(__file__), "artifacts", "test_pdf.pdf")
+    
+    @patch('ingest_pipeline.main.s3')
+    def test_process_pdf_real_file_tiff_quality(self, mock_s3, test_pdf_path):
+        """Test processing a real PDF and verify TIFF output quality."""
+        # Setup mock
+        mock_s3.list_objects_v2.return_value = {}
+        
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Process the real PDF
+            processed_keys = process_pdf(test_pdf_path, "test_pdf", "test-bucket", tmp_dir)
+            
+            # Verify that TIFFs were created
+            assert len(processed_keys) > 0
+            
+            # Check each TIFF file
+            tiff_sizes = []
+            for i, key in enumerate(processed_keys):
+                # Expected filename format: raw/test_pdf_0001.tiff, raw/test_pdf_0002.tiff, etc.
+                expected_key = f"raw/test_pdf_{i+1:04d}.tiff"
+                assert key == expected_key
+                
+                # Find the local TIFF file
+                local_tiff = os.path.join(tmp_dir, f"test_pdf_{i+1:04d}.tiff")
+                
+                # Verify the file exists and has reasonable size
+                assert os.path.exists(local_tiff)
+                file_size = os.path.getsize(local_tiff)
+                tiff_sizes.append(file_size)
+                
+                # Ensure TIFF is not suspiciously small
+                assert file_size > 1000, f"TIFF file {local_tiff} is too small: {file_size} bytes"
+                
+                # Verify it's a valid TIFF by opening it
+                img = Image.open(local_tiff)
+                assert img.format == "TIFF"
+                assert img.width > 0
+                assert img.height > 0
+            
+            # Verify file sizes are reasonable (this replaces snapshot testing)
+            print(f"TIFF file sizes: {tiff_sizes}")
+            assert len(tiff_sizes) > 0, "At least one TIFF should be generated"
+            for size in tiff_sizes:
+                # Most TIFF files from PDFs should be much larger than 1KB
+                assert size > 1000, f"TIFF file size too small: {size} bytes"
+    
+    @patch('ingest_pipeline.main.s3')
+    def test_process_pdf_page_format(self, mock_s3):
+        """Test that PDF pages are named with the correct format."""
+        mock_s3.list_objects_v2.return_value = {}
+        
+        # Create a mock page
+        mock_page = Mock()
+        
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Process page 1
+            key1 = process_pdf_page(mock_page, 1, "test_doc", "test-bucket", tmp_dir)
+            assert key1 == "raw/test_doc_0001.tiff"
+            
+            # Process page 10  
+            key10 = process_pdf_page(mock_page, 10, "test_doc", "test-bucket", tmp_dir)
+            assert key10 == "raw/test_doc_0010.tiff"
+            
+            # Process page 100
+            key100 = process_pdf_page(mock_page, 100, "test_doc", "test-bucket", tmp_dir)
+            assert key100 == "raw/test_doc_0100.tiff"
+    
+    @pytest.fixture
+    def mock_s3_client(self):
+        """Mock S3 client."""
+        with patch('ingest_pipeline.main.s3') as mock_s3:
+            yield mock_s3
+    
+    def test_pdf_not_moved_to_raw(self, mock_s3_client):
+        """Test that PDF files are NOT moved from upload/ to raw/."""
+        record = {
+            "body": json.dumps({
+                "Records": [{
+                    "s3": {
+                        "bucket": {"name": "test-bucket"},
+                        "object": {"key": "upload/test.pdf"}
+                    }
+                }]
+            })
+        }
+        
+        with patch('ingest_pipeline.main.process_pdf'):
+            with patch('tempfile.TemporaryDirectory'):
+                process_s3_record(record)
+        
+        # Should download the file
+        mock_s3_client.download_file.assert_called_once()
+        
+        # Should NOT delete the original PDF
+        mock_s3_client.delete_object.assert_not_called()
+    
+    def test_tiff_still_moved_to_raw(self, mock_s3_client):
+        """Test that TIFF files are still moved from upload/ to raw/."""
+        record = {
+            "body": json.dumps({
+                "Records": [{
+                    "s3": {
+                        "bucket": {"name": "test-bucket"},
+                        "object": {"key": "upload/test.tiff"}
+                    }
+                }]
+            })
+        }
+        
+        with patch('ingest_pipeline.main.process_tiff'):
+            with patch('ingest_pipeline.main.move_original_to_raw') as mock_move:
+                with patch('tempfile.TemporaryDirectory'):
+                    process_s3_record(record)
+        
+        # Should call move_original_to_raw for TIFF files
+        mock_move.assert_called_once() 

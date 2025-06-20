@@ -44,7 +44,7 @@ def create_and_upload_task(bucket, image_s3_path, seq_num, tmp_dir):
 def process_pdf_page(page, page_num, base_name, bucket, tmp_dir):
     """Process a single PDF page: save as TIFF and create task."""
     # Create unique filename for this page
-    page_base = f"{base_name}_page{page_num:03d}"
+    page_base = f"{base_name}_{page_num:04d}"
     page_tif = os.path.join(tmp_dir, f"{page_base}.tiff")
     
     # Save page as TIFF
@@ -145,8 +145,9 @@ def process_s3_record(record):
         # Download original file
         s3.download_file(bucket, key, local_in)
         
-        # Move the original file to "raw/" prefix
-        move_original_to_raw(local_in, bucket, key, base, ext)
+        # Only move TIFFs to raw/, leave PDFs in upload/
+        if ext in (".tiff", ".tif"):
+            move_original_to_raw(local_in, bucket, key, base, ext)
         
         # Process based on file type
         try:

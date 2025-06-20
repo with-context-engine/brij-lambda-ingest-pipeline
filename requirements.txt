@@ -1,3 +1,4 @@
 pdf2image
 Pillow
 boto3
+pytest
