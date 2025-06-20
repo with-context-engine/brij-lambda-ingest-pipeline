@@ -20,4 +20,7 @@ wheels/
 *.tfstate.*
 crash.log
 crash.*.log
+*.out
 
+# Zip files
+*.zip

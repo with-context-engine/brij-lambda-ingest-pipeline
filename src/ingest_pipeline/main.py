@@ -4,8 +4,7 @@ import json
 import tempfile
 import boto3
 import urllib.parse
-from PIL import Image
-from pdf2image import convert_from_path
+import fitz
 
 s3 = boto3.client("s3")
 
@@ -42,69 +41,75 @@ def create_and_upload_task(bucket, image_s3_path, seq_num, tmp_dir):
 
 
 def process_pdf_page(page, page_num, base_name, bucket, tmp_dir):
-    """Process a single PDF page: save as TIFF and create task."""
+    """Process a single PDF page: save as PNG and create task."""
     # Create unique filename for this page
     page_base = f"{base_name}_{page_num:04d}"
-    page_tif = os.path.join(tmp_dir, f"{page_base}.tiff")
+    page_png = os.path.join(tmp_dir, f"{page_base}.png")
     
-    # Save page as TIFF
-    page.save(page_tif, format="TIFF", compression="tiff_lzw")
-    print(f"[LOG] Saved page {page_num} as TIFF: {page_tif}")
+    # Render page as PNG using PyMuPDF
+    pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+    pix.save(page_png)
+    pix = None
+    print(f"[LOG] Saved page {page_num} as PNG: {page_png}")
     
-    # Upload page TIFF to "raw/"
-    raw_tif_key = f"raw/{page_base}.tiff"
-    s3.upload_file(page_tif, bucket, raw_tif_key)
-    print(f"[LOG] Uploaded page {page_num} TIFF to {raw_tif_key}")
+    # Upload page PNG to "raw/"
+    raw_png_key = f"raw/{page_base}.png"
+    s3.upload_file(page_png, bucket, raw_png_key)
+    print(f"[LOG] Uploaded page {page_num} PNG to {raw_png_key}")
     
     # Create and upload task
     seq = get_next_task_sequence(bucket)
-    image_path = f"s3://{bucket}/{raw_tif_key}"
+    image_path = f"s3://{bucket}/{raw_png_key}"
     create_and_upload_task(bucket, image_path, seq, tmp_dir)
     
-    return raw_tif_key
+    return raw_png_key
 
 
 def process_pdf(local_file, base_name, bucket, tmp_dir):
-    """Convert PDF to TIFF images and create tasks for each page."""
-    print(f"[LOG] Converting PDF to TIFF: {local_file}")
+    """Convert PDF to PNG images and create tasks for each page."""
+    print(f"[LOG] Converting PDF to PNG: {local_file}")
     
-    # Convert PDF pages to images
-    pages = convert_from_path(local_file, dpi=300)
-    if not pages:
-        raise Exception("No pages were converted from PDF")
+    # Open PDF with PyMuPDF
+    doc = fitz.open(local_file)
+    if doc.page_count == 0:
+        doc.close()
+        raise Exception("No pages found in PDF")
     
-    print(f"[LOG] Converted {len(pages)} pages from PDF")
+    print(f"[LOG] PDF has {doc.page_count} pages")
     
     # Process each page
     processed_keys = []
-    for page_num, page in enumerate(pages, start=1):
-        key = process_pdf_page(page, page_num, base_name, bucket, tmp_dir)
+    for page_num in range(doc.page_count):
+        page = doc[page_num]
+        key = process_pdf_page(page, page_num + 1, base_name, bucket, tmp_dir)
         processed_keys.append(key)
     
+    doc.close()
     return processed_keys
 
 
-def process_tiff(local_file, base_name, bucket, tmp_dir):
-    """Normalize TIFF file and create task."""
-    print(f"[LOG] Normalizing TIFF: {local_file}")
+def process_png(local_file, base_name, bucket, tmp_dir):
+    """Process PNG file and create task."""
+    print(f"[LOG] Processing PNG: {local_file}")
     
-    # Normalize and save TIFF
-    local_tif = os.path.join(tmp_dir, f"{base_name}.tiff")
-    img = Image.open(local_file)
-    img.save(local_tif, format="TIFF", compression="tiff_lzw")
-    print(f"[LOG] Successfully normalized TIFF to: {local_tif}")
+    # Copy PNG to standardized location
+    local_png = os.path.join(tmp_dir, f"{base_name}.png")
+    # Just copy the file (no processing needed)
+    with open(local_file, 'rb') as src, open(local_png, 'wb') as dst:
+        dst.write(src.read())
+    print(f"[LOG] Copied PNG to: {local_png}")
     
     # Upload to S3
-    raw_tif_key = f"raw/{base_name}.tiff"
-    s3.upload_file(local_tif, bucket, raw_tif_key)
-    print(f"[LOG] Uploaded TIFF to {raw_tif_key}")
+    raw_png_key = f"raw/{base_name}.png"
+    s3.upload_file(local_png, bucket, raw_png_key)
+    print(f"[LOG] Uploaded PNG to {raw_png_key}")
     
     # Create and upload task
     seq = get_next_task_sequence(bucket)
-    image_path = f"s3://{bucket}/{raw_tif_key}"
+    image_path = f"s3://{bucket}/{raw_png_key}"
     create_and_upload_task(bucket, image_path, seq, tmp_dir)
     
-    return [raw_tif_key]
+    return [raw_png_key]
 
 
 def move_original_to_raw(local_file, bucket, original_key, base_name, ext):
@@ -134,7 +139,7 @@ def process_s3_record(record):
     
     base, ext = os.path.splitext(os.path.basename(key))
     ext = ext.lower()
-    if ext not in (".pdf", ".tiff", ".tif"):
+    if ext not in (".pdf", ".png"):
         print(f"[LOG] Skipping unsupported file type: {key}")
         return
     
@@ -145,8 +150,8 @@ def process_s3_record(record):
         # Download original file
         s3.download_file(bucket, key, local_in)
         
-        # Only move TIFFs to raw/, leave PDFs in upload/
-        if ext in (".tiff", ".tif"):
+        # Only move PNGs to raw/, leave PDFs in upload/
+        if ext == ".png":
             move_original_to_raw(local_in, bucket, key, base, ext)
         
         # Process based on file type
@@ -154,7 +159,7 @@ def process_s3_record(record):
             if ext == ".pdf":
                 process_pdf(local_in, base, bucket, tmp)
             else:
-                process_tiff(local_in, base, bucket, tmp)
+                process_png(local_in, base, bucket, tmp)
         except Exception as e:
             print(f"[ERROR] Failed to process {key}: {str(e)}")
             raise

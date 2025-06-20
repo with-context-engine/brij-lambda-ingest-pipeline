@@ -13,7 +13,7 @@ from ingest_pipeline.main import (
     create_and_upload_task,
     process_pdf_page,
     process_pdf,
-    process_tiff,
+    process_png,
     move_original_to_raw,
     process_s3_record
 )
@@ -111,7 +111,7 @@ class TestLambdaHandler:
         with tempfile.TemporaryDirectory() as tmp_dir:
             ingest_key = create_and_upload_task(
                 "test-bucket",
-                "s3://test-bucket/raw/test.tiff",
+                "s3://test-bucket/raw/test.png",
                 5,
                 tmp_dir
             )
@@ -126,7 +126,7 @@ class TestLambdaHandler:
             
             with open(local_file, 'r') as f:
                 content = json.load(f)
-                assert content == [{"data": {"image": "s3://test-bucket/raw/test.tiff"}}]
+                assert content == [{"data": {"image": "s3://test-bucket/raw/test.png"}}]
     
     @patch('ingest_pipeline.main.get_next_task_sequence')
     @patch('ingest_pipeline.main.create_and_upload_task')
@@ -135,8 +135,10 @@ class TestLambdaHandler:
         mock_get_seq.return_value = 1
         mock_create_task.return_value = "ingest/TASK_0000001.json"
         
-        # Create a mock PIL Image
+        # Create a mock PyMuPDF page
         mock_page = Mock()
+        mock_pixmap = Mock()
+        mock_page.get_pixmap.return_value = mock_pixmap
         
         with tempfile.TemporaryDirectory() as tmp_dir:
             raw_key = process_pdf_page(
@@ -147,21 +149,25 @@ class TestLambdaHandler:
                 tmp_dir
             )
             
-            assert raw_key == "raw/test_document_0001.tiff"
-            mock_page.save.assert_called_once()
+            assert raw_key == "raw/test_document_0001.png"
+            mock_page.get_pixmap.assert_called_once()
+            mock_pixmap.save.assert_called_once()
             mock_s3_client.upload_file.assert_called_once()
     
-    @patch('ingest_pipeline.main.convert_from_path')
+    @patch('ingest_pipeline.main.fitz')
     @patch('ingest_pipeline.main.process_pdf_page')
-    def test_process_pdf_multiple_pages(self, mock_process_page, mock_convert):
+    def test_process_pdf_multiple_pages(self, mock_process_page, mock_fitz):
         """Test processing a PDF with multiple pages."""
-        # Mock 3 pages
-        mock_pages = [Mock() for _ in range(3)]
-        mock_convert.return_value = mock_pages
+        # Mock PyMuPDF document
+        mock_doc = Mock()
+        mock_doc.page_count = 3
+        mock_doc.__getitem__.side_effect = [Mock(), Mock(), Mock()]  # 3 pages
+        mock_fitz.open.return_value = mock_doc
+        
         mock_process_page.side_effect = [
-            "raw/doc_0001.tiff",
-            "raw/doc_0002.tiff",
-            "raw/doc_0003.tiff"
+            "raw/doc_0001.png",
+            "raw/doc_0002.png",
+            "raw/doc_0003.png"
         ]
         
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -169,43 +175,45 @@ class TestLambdaHandler:
             
             assert len(keys) == 3
             assert mock_process_page.call_count == 3
+            mock_doc.close.assert_called_once()
     
-    @patch('ingest_pipeline.main.Image')
     @patch('ingest_pipeline.main.get_next_task_sequence')
     @patch('ingest_pipeline.main.create_and_upload_task')
-    def test_process_tiff(self, mock_create_task, mock_get_seq, mock_image, mock_s3_client):
-        """Test processing a TIFF file."""
+    def test_process_png(self, mock_create_task, mock_get_seq, mock_s3_client):
+        """Test processing a PNG file."""
         mock_get_seq.return_value = 1
         mock_create_task.return_value = "ingest/TASK_0000001.json"
-        mock_img = Mock()
-        mock_image.open.return_value = mock_img
         
         with tempfile.TemporaryDirectory() as tmp_dir:
-            keys = process_tiff("test.tif", "test_image", "test-bucket", tmp_dir)
+            # Create a mock PNG file
+            test_png = os.path.join(tmp_dir, "input.png")
+            with open(test_png, 'wb') as f:
+                f.write(b'fake png data')
             
-            assert keys == ["raw/test_image.tiff"]
-            mock_img.save.assert_called_once()
+            keys = process_png(test_png, "test_image", "test-bucket", tmp_dir)
+            
+            assert keys == ["raw/test_image.png"]
             mock_s3_client.upload_file.assert_called_once()
     
     def test_move_original_to_raw(self, mock_s3_client):
         """Test moving original file to raw prefix."""
         raw_key = move_original_to_raw(
-            "local_file.pdf",
+            "local_file.png",
             "test-bucket",
-            "upload/original.pdf",
+            "upload/original.png",
             "original",
-            ".pdf"
+            ".png"
         )
         
-        assert raw_key == "raw/original.pdf"
+        assert raw_key == "raw/original.png"
         mock_s3_client.upload_file.assert_called_once_with(
-            "local_file.pdf",
+            "local_file.png",
             "test-bucket",
-            "raw/original.pdf"
+            "raw/original.png"
         )
         mock_s3_client.delete_object.assert_called_once_with(
             Bucket="test-bucket",
-            Key="upload/original.pdf"
+            Key="upload/original.png"
         )
     
     @patch('ingest_pipeline.main.process_pdf')
@@ -316,16 +324,23 @@ class TestIntegration:
     """Integration tests that test the full flow."""
     
     @patch('ingest_pipeline.main.s3')
-    @patch('ingest_pipeline.main.convert_from_path')
-    def test_full_pdf_processing_flow(self, mock_convert, mock_s3):
+    @patch('ingest_pipeline.main.fitz')
+    def test_full_pdf_processing_flow(self, mock_fitz, mock_s3):
         """Test the complete flow of processing a PDF file."""
         # Setup mocks
         mock_s3.list_objects_v2.return_value = {}
         
-        # Create mock pages
+        # Create mock PyMuPDF document with 2 pages
+        mock_doc = Mock()
+        mock_doc.page_count = 2
         mock_page1 = Mock()
         mock_page2 = Mock()
-        mock_convert.return_value = [mock_page1, mock_page2]
+        mock_pixmap1 = Mock()
+        mock_pixmap2 = Mock()
+        mock_page1.get_pixmap.return_value = mock_pixmap1
+        mock_page2.get_pixmap.return_value = mock_pixmap2
+        mock_doc.__getitem__.side_effect = [mock_page1, mock_page2]
+        mock_fitz.open.return_value = mock_doc
         
         # Create test event
         event = {
@@ -350,7 +365,7 @@ class TestIntegration:
         # Should have downloaded the original
         assert mock_s3.download_file.call_count == 1
         
-        # Should have uploaded: 2 TIFFs + 2 JSONs = 4 files (PDF not moved anymore)
+        # Should have uploaded: 2 PNGs + 2 JSONs = 4 files (PDF not moved anymore)
         assert mock_s3.upload_file.call_count == 4
         
         # Should NOT have deleted the original PDF
@@ -358,7 +373,7 @@ class TestIntegration:
 
 
 class TestRealPDFProcessing:
-    """Test with real PDF file and verify TIFF output."""
+    """Test with real PDF file and verify PNG output."""
     
     @pytest.fixture
     def test_pdf_path(self):
@@ -366,69 +381,67 @@ class TestRealPDFProcessing:
         return os.path.join(os.path.dirname(__file__), "artifacts", "test_pdf.pdf")
     
     @patch('ingest_pipeline.main.s3')
-    def test_process_pdf_real_file_tiff_quality(self, mock_s3, test_pdf_path):
-        """Test processing a real PDF and verify TIFF output quality."""
+    def test_process_pdf_real_file_png_quality(self, mock_s3, test_pdf_path):
+        """Test processing a real PDF and verify PNG output quality."""
         # Setup mock
         mock_s3.list_objects_v2.return_value = {}
         
         with tempfile.TemporaryDirectory() as tmp_dir:
-            # Process the real PDF
+            # Process the PDF (using mocked PyMuPDF)
             processed_keys = process_pdf(test_pdf_path, "test_pdf", "test-bucket", tmp_dir)
             
-            # Verify that TIFFs were created
-            assert len(processed_keys) > 0
+            # Verify that PNGs were created
+            assert len(processed_keys) == 1
             
-            # Check each TIFF file
-            tiff_sizes = []
+            # Check each PNG file
+            png_sizes = []
             for i, key in enumerate(processed_keys):
-                # Expected filename format: raw/test_pdf_0001.tiff, raw/test_pdf_0002.tiff, etc.
-                expected_key = f"raw/test_pdf_{i+1:04d}.tiff"
+                # Expected filename format: raw/test_pdf_0001.png, raw/test_pdf_0002.png, etc.
+                expected_key = f"raw/test_pdf_{i+1:04d}.png"
                 assert key == expected_key
                 
-                # Find the local TIFF file
-                local_tiff = os.path.join(tmp_dir, f"test_pdf_{i+1:04d}.tiff")
+                # Find the local PNG file
+                local_png = os.path.join(tmp_dir, f"test_pdf_{i+1:04d}.png")
                 
                 # Verify the file exists and has reasonable size
-                assert os.path.exists(local_tiff)
-                file_size = os.path.getsize(local_tiff)
-                tiff_sizes.append(file_size)
+                assert os.path.exists(local_png)
+                file_size = os.path.getsize(local_png)
+                png_sizes.append(file_size)
                 
-                # Ensure TIFF is not suspiciously small
-                assert file_size > 1000, f"TIFF file {local_tiff} is too small: {file_size} bytes"
+                # Ensure PNG is not suspiciously small
+                assert file_size > 1_000_000, f"PNG file {local_png} is too small: {file_size} bytes"
                 
-                # Verify it's a valid TIFF by opening it
-                img = Image.open(local_tiff)
-                assert img.format == "TIFF"
-                assert img.width > 0
-                assert img.height > 0
+                # Verify it starts with PNG header
+                with open(local_png, 'rb') as f:
+                    header = f.read(8)
+                    assert header.startswith(b'\x89PNG\r\n\x1a\n'), f"Not a valid PNG file: {local_png}"
             
-            # Verify file sizes are reasonable (this replaces snapshot testing)
-            print(f"TIFF file sizes: {tiff_sizes}")
-            assert len(tiff_sizes) > 0, "At least one TIFF should be generated"
-            for size in tiff_sizes:
-                # Most TIFF files from PDFs should be much larger than 1KB
-                assert size > 1000, f"TIFF file size too small: {size} bytes"
+            # Verify file sizes are reasonable
+            print(f"PNG file sizes: {png_sizes}")
+            assert len(png_sizes) == 1, "Should generate 1 PNG file"
     
     @patch('ingest_pipeline.main.s3')
     def test_process_pdf_page_format(self, mock_s3):
         """Test that PDF pages are named with the correct format."""
         mock_s3.list_objects_v2.return_value = {}
         
-        # Create a mock page
+        # Create a mock PyMuPDF page
         mock_page = Mock()
+        mock_pixmap = Mock()
+        mock_page.get_pixmap.return_value = mock_pixmap
         
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Process page 1
             key1 = process_pdf_page(mock_page, 1, "test_doc", "test-bucket", tmp_dir)
-            assert key1 == "raw/test_doc_0001.tiff"
+            assert key1 == "raw/test_doc_0001.png"
             
             # Process page 10  
             key10 = process_pdf_page(mock_page, 10, "test_doc", "test-bucket", tmp_dir)
-            assert key10 == "raw/test_doc_0010.tiff"
+            assert key10 == "raw/test_doc_0010.png"
             
             # Process page 100
             key100 = process_pdf_page(mock_page, 100, "test_doc", "test-bucket", tmp_dir)
-            assert key100 == "raw/test_doc_0100.tiff"
+            assert key100 == "raw/test_doc_0100.png"
     
     @pytest.fixture
     def mock_s3_client(self):
@@ -459,23 +472,23 @@ class TestRealPDFProcessing:
         # Should NOT delete the original PDF
         mock_s3_client.delete_object.assert_not_called()
     
-    def test_tiff_still_moved_to_raw(self, mock_s3_client):
-        """Test that TIFF files are still moved from upload/ to raw/."""
+    def test_png_still_moved_to_raw(self, mock_s3_client):
+        """Test that PNG files are moved from upload/ to raw/."""
         record = {
             "body": json.dumps({
                 "Records": [{
                     "s3": {
                         "bucket": {"name": "test-bucket"},
-                        "object": {"key": "upload/test.tiff"}
+                        "object": {"key": "upload/test.png"}
                     }
                 }]
             })
         }
         
-        with patch('ingest_pipeline.main.process_tiff'):
+        with patch('ingest_pipeline.main.process_png'):
             with patch('ingest_pipeline.main.move_original_to_raw') as mock_move:
                 with patch('tempfile.TemporaryDirectory'):
                     process_s3_record(record)
         
-        # Should call move_original_to_raw for TIFF files
+        # Should call move_original_to_raw for PNG files
         mock_move.assert_called_once() 
