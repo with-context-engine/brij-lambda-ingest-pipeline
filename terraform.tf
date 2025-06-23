@@ -134,7 +134,7 @@ resource "aws_s3_bucket_notification" "upload_notify" {
 
   queue {
     queue_arn     = aws_sqs_queue.brij_v1_upload_queue.arn
-    events        = ["s3:ObjectCreated:Put"]
+    events        = ["s3:ObjectCreated:Put", "s3:ObjectCreated:Post"]
     filter_prefix = "upload/"
   }
 
