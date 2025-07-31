@@ -10,6 +10,15 @@ terraform {
       source  = "ldcorentin/klayer"
     }
   }
+
+  # Remote state backend configuration
+  backend "s3" {
+    bucket         = "terraform-state-brij-construction"
+    key            = "ingest/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-state-brij-ingest-locks"
+    encrypt        = true
+  }
 }
 
 variable "aws_region" {
@@ -197,6 +206,12 @@ resource "aws_lambda_function" "converter" {
   timeout = 900
   ephemeral_storage { size = 4096 }
   memory_size = 4096
+
+  environment {
+    variables = {
+      API_TOKEN = "0b70a4d7acf9070c8825b539d61ace7d811d86a8"
+    }
+  }
 
   depends_on = [
     data.archive_file.lambda_zip

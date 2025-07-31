@@ -180,7 +180,7 @@ def lambda_handler(event, context):
     sync_response_json = {}
     try:
         url = "https://brij-annotate.with-context.co/api/storages/s3/1/sync"
-        token = os.getenv("CONTEXT_TOKEN")
+        token = os.getenv("API_TOKEN")
         headers = {"Authorization": f"Token {token}"}
 
         print("[LOG] Triggering storage sync.")
